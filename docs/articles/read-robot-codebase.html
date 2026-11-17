@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>如何快速读懂一个机器人学习代码库 · 旺仔</title><meta name="description" content="从启动命令出发，追踪数据、参数更新、推理与评估，形成有证据的代码库阅读记录。"><link rel="stylesheet" href="../style.css"><link rel="icon" href="../favicon.svg"></head><body>
+<a class="skip" href="#main">跳到正文</a><header class="site-header"><div class="wrap header-inner"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">W.</span>旺仔 <small>ROBOT LEARNING NOTES</small></a><nav class="nav" aria-label="主导航"><a href="../index.html#writing">全部文章</a><a href="../index.html#about">关于</a><a href="https://github.com/hao00sun">GitHub ↗</a></nav></div></header>
+<main id="main" class="wrap"><div class="article-head"><div class="eyebrow">02 / 阅读方法 · 源码理解</div><h1>如何快速读懂一个机器人学习代码库</h1><p class="deck">从一条真实命令出发，跟着数据走到动作，再跟着学习信号走到参数更新。</p><div class="byline">旺仔 · 2026 年 11 月 17 日 · 阅读指南 / 初稿</div></div><div class="article-layout"><aside class="toc" aria-label="文章目录"><strong>本文路线</strong><a href="#question">01 带着问题读</a><a href="#entry">02 入口与配置</a><a href="#sample">03 跟踪一个样本</a><a href="#update">04 一次参数更新</a><a href="#proof">05 评估与证据</a><a href="#card">06 留下一张卡片</a></aside><article class="prose">
+<div class="callout"><p>读懂代码库的第一步，是能解释一个具体运行过程：谁构造环境，谁生成动作，谁计算目标，谁更新参数，谁判断成功。</p><p>本文是阅读方法整理。时间分配是建议，不表示任何复杂仓库都能在两小时内被完整理解。</p></div>
+<h2 id="question">01 / 先确定这次阅读要做什么</h2><p>筛选一个方法是否值得复现，与修改真实机器人接口，需要的深度不同。开始前写下三个问题：它解决哪一段问题？我想复用哪一部分？什么证据足以支持下一步行动？</p><p>先看任务、输入输出、依赖与公开结果。确认许可证、数据和权重是否可用。若关键资源拿不到，应记录阻塞；继续阅读十几个模型类，也不会自动解决复现条件缺失。</p>
+<h2 id="entry">02 / 从命令追到实际实例</h2><p>以 README 中一条对应目标任务的命令为锚点，追踪入口、配置合并和对象构建。不要根据目录名猜测运行了哪个模型。</p><pre><code>启动命令
+  → 参数解析与配置覆盖
+  → 实际创建的 Env / Dataset / Policy
+  → Trainer 或 Learner
+  → 训练循环与保存</code></pre><p>沿途记录文件路径和符号名。遇到 registry、factory 或 wrapper，就继续追到最终对象。尤其要确认命令行覆盖、默认配置与运行日志中的最终配置是否一致。</p><p>可以用关键词定位候选位置，但搜索结果只是入口。例如 <code>optimizer.step</code> 可能出现在多个训练器中，要证明当前运行真的会调用其中哪一个。</p>
+<h2 id="sample">03 / 跟踪一个实际 sample 或 batch</h2><p>选一个样本，从来源一路跟到模型输入。在每次转换处记录四件事：字段含义、shape、单位或数值范围、时间对应关系。</p><div class="table-wrap" tabindex="0" role="region" aria-label="数据流检查表"><table><thead><tr><th>环节</th><th>要回答的问题</th></tr></thead><tbody><tr><td>来源</td><td>数据是在线采样、离线示范，还是混合？学习标签来自哪里？</td></tr><tr><td>预处理</td><td>图片裁剪、历史窗口、归一化和动作转换由谁完成？</td></tr><tr><td>组批</td><td>时间维与 batch 维分别是什么？padding 是否被 mask？</td></tr><tr><td>模型输出</td><td>输出单步动作、动作块、分布参数，还是噪声 / 速度场？</td></tr><tr><td>执行或存储</td><td>哪个动作真正发送给控制器？buffer 记录的又是哪一个？</td></tr></tbody></table></div><p>机器人代码还要核对关节序、坐标系、控制频率、相机与状态时戳。数据可以成功转成张量，却在时间或动作含义上错位。</p>
+<h2 id="update">04 / 走完一次参数更新</h2><p>读网络结构后，再找学习目标。把论文中的量映射到真实变量，确认它们来自采样数据、当前网络还是目标网络。随后追到 backward 和优化器。</p><pre><code>PPO：rollout → return / advantage → policy 与 value loss → 更新
+SAC：replay → TD target → critic → actor / 温度 / target 更新
+BC：观测与专家动作 → 预测 → 监督损失 → 更新
+生成策略：观测与动作样本 → 扰动与时间变量 → 训练目标 → 更新</code></pre><p>上面是定位用的简图，具体时序以代码为准。逐项问：谁冻结？谁 detach？哪个优化器持有哪些参数？一次环境交互对应多少次更新？梯度累积与更新频率如何影响日志步数？</p><p>例如配置中出现 KL 阈值，并不能证明自适应学习率已启用；一个函数被定义，也不能证明它进入了当前调用链。需要找到使用该值的分支以及分支实际生效的证据。</p>
+<h2 id="proof">05 / 沿推理与评估路径反向验真</h2><p>从 checkpoint 开始，看部署是否恢复了模型、统计量和所需状态。然后追踪观测、动作后处理、控制器与反馈，检查训练和部署接口是否一致。</p><p>评估端要找到成功条件的真实代码：成功保持多久？超时算什么？人工接管如何记？训练中的 success 日志是否等于独立评估？只有把这些问题回答清楚，才有条件比较不同实验。</p><p>阅读记录中建议区分五种证据：<strong>论文或文档宣称、静态代码确认、实际运行、推断、未确认</strong>。静态阅读能证明某条代码怎样计算，未必能证明它在目标环境中被执行；运行不报错也不等于任务学会。</p>
+<h2 id="card">06 / 留下一张可继续更新的卡片</h2><p>第一次阅读可以分配：入口配置 20 分钟、数据流 30 分钟、学习更新 35 分钟、评估部署 20 分钟、结论 15 分钟。遇到关键不确定点，就停止扩大阅读范围，记录最小验证办法。</p><pre><code>代码库 / commit / 阅读日期：
+本次目标：
+启动命令与最终配置：
+训练链：文件:符号 → 文件:符号
+推理链：观测 → 策略 → 控制命令
+数据契约：shape / 单位 / 时序 / mask
+学习目标：更新谁，依据什么信号
+评估口径：任务 / 分母 / 失败与干预
+已确认：证据位置
+未确认：下一步验证方法
+结论：复现 / 局部借鉴 / 暂缓</code></pre><p>在资源和权限允许时，再做一个最小运行：构造少量样本或环境，走完前向、更新、存盘和加载，并保存结果。这个检查证明链路可用，不替代大规模训练、独立评估或真机验证。</p><div class="reading-end"><a href="../index.html#writing">← 全部笔记</a><a href="vla-residual-rl.html">下一篇：VLA 后训练路线 →</a></div></article></div></main><footer class="site-footer"><div class="wrap footer-inner"><span>© 2026 旺仔</span><a href="https://github.com/hao00sun">GitHub ↗</a></div></footer></body></html>
